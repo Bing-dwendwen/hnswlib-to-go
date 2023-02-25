@@ -12,6 +12,7 @@ import "C"
 import (
 	"math"
 	"runtime"
+	"sync"
 	"unsafe"
 )
 
@@ -105,6 +106,33 @@ func (h *HNSW) AddPoint(vector []float32, label uint32) bool {
 	return true
 }
 
+// AddBatchPoints add some points on graph
+func (h *HNSW) AddBatchPoints(vectors [][]float32, labels []uint32, coroutines int) bool {
+	if len(vectors) != len(labels) {
+		return false
+	}
+
+	b := len(vectors) / coroutines
+	var wg sync.WaitGroup
+	for i := 0; i < coroutines; i++ {
+		wg.Add(1)
+
+		end := (i + 1) * b
+		if i == coroutines-1 && len(vectors) > end {
+			end = len(vectors)
+		}
+		go func(thisVectors [][]float32, thisLabels []uint32) {
+			defer wg.Done()
+			for j := 0; j < len(thisVectors); j++ {
+				h.AddPoint(thisVectors[j], thisLabels[j])
+			}
+		}(vectors[i*b:end], labels[i*b:end])
+	}
+
+	wg.Wait()
+	return true
+}
+
 // SearchKNN search points on graph with knn-algorithm
 func (h *HNSW) SearchKNN(vector []float32, N int) ([]uint32, []float32) {
 	if h.index == nil {
@@ -125,10 +153,47 @@ func (h *HNSW) SearchKNN(vector []float32, N int) ([]uint32, []float32) {
 	return labels[:numResult], dists[:numResult]
 }
 
+func (h *HNSW) SearchBatchKNN(vectors [][]float32, N, coroutines int) ([][]uint32, [][]float32) {
+	var lock sync.Mutex
+	labelList := make([][]uint32, len(vectors))
+	distList := make([][]float32, len(vectors))
+
+	b := len(vectors) / coroutines
+	var wg sync.WaitGroup
+	for i := 0; i < coroutines; i++ {
+		wg.Add(1)
+
+		end := (i + 1) * b
+		if i == coroutines-1 && len(vectors) > end {
+			end = len(vectors)
+		}
+		go func(i int) {
+			defer wg.Done()
+			for j := i * b; j < end; j++ {
+				labels, dist := h.SearchKNN(vectors[j], N)
+				lock.Lock()
+				labelList[j] = labels
+				distList[j] = dist
+				lock.Unlock()
+			}
+		}(i)
+	}
+	wg.Wait()
+	return labelList, distList
+}
+
 // SetEf set ef argument on graph
 func (h *HNSW) SetEf(ef int) {
 	if h.index == nil {
 		return
 	}
 	C.setEf(h.index, C.int(ef))
+}
+
+func (h *HNSW) SetNormalize(isNeedNormalize bool) {
+	h.normalize = isNeedNormalize
+}
+
+func (h *HNSW) Free() {
+	C.freeHNSW(h.index)
 }

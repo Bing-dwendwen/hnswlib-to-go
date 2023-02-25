@@ -6,7 +6,7 @@ import (
 	"runtime"
 	"time"
 
-	hnswgo "github.com/sunhailin-Leo/hnswlib-to-go"
+	hnswgo "github.com/Bing-dwendwen/hnswlib-to-go"
 )
 
 func toMegaBytes(bytes uint64) float64 {
@@ -54,18 +54,25 @@ func main() {
 	// Init new index
 	h := hnswgo.New(dim, M, ef, randomSeed, maxElements, spaceType)
 	// Insert 1000 vectors to index. Label Type is uint32
+	vectorList := make([][]float32, maxElements)
+	ids := make([]uint32, maxElements)
 	var i uint32
 	for ; i < maxElements; i++ {
 		if i%1000 == 0 {
 			fmt.Println(i)
 		}
-		h.AddPoint(randVector(dim), i)
+		vectorList[i] = randVector(dim)
+		ids[i] = i
+		//h.AddPoint(randVector(dim), i)
 	}
+
+	h.AddBatchPoints(vectorList, ids, 10)
+
 	h.Save(indexLocation)
 	h = hnswgo.Load(indexLocation, dim, spaceType)
 	// Search vector with maximum 5 NN
 	h.SetEf(15)
-	searchVector := randVector(dim)
+	searchVector := randVector(dim * 2)
 	// Count query time
 	startTime := time.Now().UnixNano()
 	labels, vectors := h.SearchKNN(searchVector, 5)
@@ -73,10 +80,14 @@ func main() {
 	fmt.Println(endTime - startTime)
 	fmt.Println(labels, vectors)
 
+	labelList, scores := h.SearchBatchKNN(vectorList[:50], 5, 5)
+	fmt.Println(labelList, scores)
+
 	fmt.Println("Before Unload")
 	traceMemStats()
 	h.Unload()
 	fmt.Println("After Unload")
 	traceMemStats()
 
+	h.Free()
 }
