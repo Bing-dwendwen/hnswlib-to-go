@@ -108,7 +108,7 @@ func (h *HNSW) AddPoint(vector []float32, label uint32) bool {
 
 // AddBatchPoints add some points on graph
 func (h *HNSW) AddBatchPoints(vectors [][]float32, labels []uint32, coroutines int) bool {
-	if len(vectors) != len(labels) {
+	if len(vectors) != len(labels) || coroutines < 1 {
 		return false
 	}
 
